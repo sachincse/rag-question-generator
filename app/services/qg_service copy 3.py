@@ -25,7 +25,7 @@ class GraphState(TypedDict):
 llm = ChatGroq(model="llama3-8b-8192", temperature=0, api_key=settings.GROQ_API_KEY)
 retriever = None
 
-# --- Agent Nodes (with Improved Prompts) ---
+# --- Agent Nodes ---
 def retrieve_documents(state: GraphState) -> GraphState:
     # ... (This function remains unchanged)
     print("--- Node: Retrieving documents ---")
@@ -54,76 +54,31 @@ def get_context_with_sources(documents: List[Document]) -> str:
     )
 
 def mcq_agent(state: GraphState) -> GraphState:
+    # ... (MCQ agent remains the same)
     print("--- Node: MCQ Agent ---")
     context_with_sources = get_context_with_sources(state["documents"])
-    
-    # NEW Point-wise and Few-Shot Prompt for MCQ
     prompt = ChatPromptTemplate.from_template(
-        """
-        **System Instruction:**
-        - Your response MUST be a single, raw JSON object. Do not include any conversational text, prefixes, or markdown formatting.
-
-        **Your Task:**
-        1.  You are an expert at creating high-quality multiple-choice questions from a provided text.
-        2.  Generate exactly {num_questions} questions based on the `Context with Sources` below.
-        3.  **Strictly** focus on the user's topic: '{topic}'. Ignore any unrelated information in the context.
-        4.  Each question must be factually correct and directly answerable from the provided text.
-        5.  Each question MUST include a `source_page` field, using the page number provided in the context.
-        6.  If you cannot create the requested number of high-quality questions that follow all rules, generate as many as you can and stop.
-
-        **Example of a single, good MCQ object:**
-        ```json
-        {{
-          "question": "What is the purpose of the 'self' parameter in a class method?",
-          "options": [
-            "It holds the class name",
-            "It refers to the object instance itself",
-            "It is a placeholder for global variables",
-            "It is always the first argument and can be ignored"
-          ],
-          "correct_answer": "It refers to the object instance itself",
-          "explanation": "The 'self' parameter in a class method refers to the object itself, allowing you to access its attributes and other methods.",
-          "source_page": 108
-        }}
-        ```
-
-        **Context with Sources:**
-        ---
-        {context}
-        ---
-        """
+        """**Task:** Based on the context below, generate {num_questions} high-quality multiple-choice questions strictly about the topic '{topic}'. Ignore unrelated information in the context. Your response must be a single, raw JSON object. Each question must include a `source_page` field. If you cannot generate enough high-quality questions, generate as many as you can.
+        **Context with Sources:** --- {context} --- """
     )
     chain = prompt | llm.with_structured_output(MCQs)
     result = chain.invoke({"context": context_with_sources, "num_questions": state["num_questions"], "topic": state.get("topic", "general topics")})
-    return {"final_output": result.model_dump()}
+    return {"final_output": result.dict()}
 
 def fitb_agent(state: GraphState) -> GraphState:
     print("--- Node: Fill-in-the-Blank Agent ---")
     context_with_sources = get_context_with_sources(state["documents"])
-
-    # NEW Point-wise and Few-Shot Prompt for FillInTheBlank
+    # New, highly explicit prompt with step-by-step instructions
     prompt = ChatPromptTemplate.from_template(
-        """
-        **System Instruction:**
-        - Your response MUST be a single, raw JSON object. Do not include any conversational text or markdown formatting.
+        """**Task:** Create {num_questions} fill-in-the-blank questions based on the context. Your response must be a single, raw JSON object.
+        Follow these steps precisely for each question:
+        1.  Find an important, factual sentence in the context that is clearly about the topic '{topic}'.
+        2.  Identify a single, critical keyword or short phrase in that sentence.
+        3.  Create the "sentence" field by replacing that keyword with '_________'.
+        4.  Create the "correct_answer" field with the exact keyword you removed.
+        5.  Add the correct "source_page" from the context.
 
-        **Your Task:**
-        1.  You are an expert at creating high-quality fill-in-the-blank questions from a provided text.
-        2.  Generate exactly {num_questions} questions based on the `Context with Sources` below.
-        3.  **Strictly** focus on the user's topic: '{topic}'. Ignore any unrelated information.
-        4.  For each question, find an important sentence and replace a single key term or phrase with '_________'.
-        5.  The `correct_answer` must be the exact term you removed.
-        6.  Each question MUST include the `source_page`.
-        7.  If you cannot create enough high-quality questions, generate as many as you can.
-
-        **Example of a single, good FillInTheBlank object:**
-        ```json
-        {{
-          "sentence": "A string is a _________ of characters.",
-          "correct_answer": "sequence",
-          "source_page": 38
-        }}
-        ```
+        If you cannot create {num_questions} high-quality questions that follow these rules, create as many as you can.
 
         **Context with Sources:**
         ---
@@ -133,59 +88,54 @@ def fitb_agent(state: GraphState) -> GraphState:
     )
     chain = prompt | llm.with_structured_output(FillInTheBlanks)
     result = chain.invoke({"context": context_with_sources, "num_questions": state["num_questions"], "topic": state.get("topic", "general topics")})
-    return {"final_output": result.model_dump()}
+    return {"final_output": result.dict()}
 
 def summary_agent(state: GraphState) -> GraphState:
+    # ... (Summary agent remains the same)
     print("--- Node: Summary Agent ---")
     context_with_sources = get_context_with_sources(state["documents"])
     source_pages = sorted(list(set(doc.metadata.get("page", 0) for doc in state["documents"])))
-    
-    # NEW Point-wise Prompt for Summary
     prompt = ChatPromptTemplate.from_template(
-        """
-        **System Instruction:**
-        - Your response MUST be a single, raw JSON object. Do not include any conversational text or markdown formatting.
-
-        **Your Task:**
-        1.  Read the `Context with Sources` below, which is focused on the user's topic of '{topic}'.
-        2.  Generate a single, concise summary of 2-3 sentences.
-        3.  The summary must be factually correct and derived only from the provided text.
-        4.  The final JSON must include the `source_pages` field, listing all unique page numbers used.
-
-        **Context with Sources:**
-        ---
-        {context}
-        ---
-        """
+        """**Task:** Generate a concise summary of the context. Your response must be a single, raw JSON object.
+        **Context with Sources:** --- {context} --- """
     )
     chain = prompt | llm.with_structured_output(Summary)
-    result = chain.invoke({"context": context_with_sources, "topic": state.get("topic", "the main concepts")})
+    result = chain.invoke({"context": context_with_sources})
     result.source_pages = source_pages
-    return {"final_output": result.model_dump()}
-
+    return {"final_output": result.dict()}
 
 # --- Router Logic (Unchanged) ---
 def route_to_agent(state: GraphState) -> str:
     route_map = {"MCQ": "mcq_agent", "FillInTheBlank": "fitb_agent", "Summary": "summary_agent"}
     return route_map[state['content_type']]
 
-# --- Validation and Filtering (Unchanged) ---
+# --- NEW: Programmatic Validation and Filtering ---
 def validate_and_filter_output(output: dict, topic: Optional[str]) -> dict:
+    """
+    Acts as a final, programmatic quality gate to enforce rules and relevance.
+    """
     if "questions" not in output:
+        # This is a summary, return as-is
         return output
 
     validated_questions = []
     topic_word = topic.lower().split(" ")[-1] if topic else None
 
     for q in output["questions"]:
+        # Rule 1: Check for fill-in-the-blank format if applicable
         if "sentence" in q and "_________" not in q.get("sentence", ""):
-            continue
+            continue # Discard if it's not a proper fill-in-the-blank
+
+        # Rule 2: Check for a meaningful answer
         if not q.get("correct_answer"):
-            continue
+            continue # Discard if the answer is empty
+
+        # Rule 3: Check for relevance if a topic was provided
         if topic_word:
             combined_text = (q.get("question", "") + q.get("explanation", "") + q.get("sentence", "")).lower()
             if topic_word not in combined_text:
-                continue
+                continue # Discard if the question is not on topic
+        
         validated_questions.append(q)
 
     output["questions"] = validated_questions
@@ -206,16 +156,21 @@ workflow.add_edge("fitb_agent", END)
 workflow.add_edge("summary_agent", END)
 app_graph = workflow.compile()
 
-# --- Main Service Function (Unchanged) ---
+# --- Main Service Function (Updated signature) ---
 def run_generation(topic: Optional[str], content_type: Literal["MCQ", "FillInTheBlank", "Summary"], num_questions: Optional[int], context_chunks: int):
+    # ... (the rest of the function is the same)
     try:
         initial_state = {
-            "topic": topic, "content_type": content_type,
-            "num_questions": num_questions, "context_chunks": context_chunks
+            "topic": topic,
+            "content_type": content_type,
+            "num_questions": num_questions,
+            "context_chunks": context_chunks,
         }
         final_state = app_graph.invoke(initial_state)
         generated_output = final_state.get("final_output")
+        
         validated_output = validate_and_filter_output(generated_output, topic)
+        
         return validated_output
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred during content generation: {str(e)}")

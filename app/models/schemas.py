@@ -7,10 +7,12 @@ class IngestResponse(BaseModel):
     table_of_contents: List[str]
 
 class ContentGenerationRequest(BaseModel):
-    # Topic is now optional to allow for general questions
     topic: Optional[str] = Field(None, description="The topic for content generation. If omitted, general content from the document will be created.")
     content_type: Literal["MCQ", "FillInTheBlank", "Summary"]
-    num_questions: int = Field(3, description="The desired number of questions to generate.", gt=0, le=10)
+    
+    # num_questions is now optional
+    num_questions: Optional[int] = Field(3, description="The desired number of questions to generate (used for MCQ and FillInTheBlank).", gt=0, le=10)
+    
     context_chunks: int = Field(5, description="Number of document chunks to use as context.", gt=0, le=15)
 
 # --- Agent Output Models (with source citations) ---
