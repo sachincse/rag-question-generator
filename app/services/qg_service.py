@@ -94,12 +94,20 @@ def summary_agent(state: GraphState) -> GraphState:
     source_pages = sorted(list(set(int(doc.metadata.get("page", 0)) for doc in state["documents"])))
     prompt = ChatPromptTemplate.from_template(
         """
-        **System Instruction:** Your response MUST be a single, raw JSON object. Do not add conversational text.
-        **Your Task:** Generate a high-quality summary of the context, focusing on '{topic}'.
+        **System Instruction:** Your response MUST be a single, raw JSON object. Do not include conversational text.
+        **Your Task:** Generate a high-quality summary of the provided context, focusing on the topic of '{topic}'.
         **Rules:**
-        1. Synthesize the key points into a coherent paragraph.
-        2. Summary length should be appropriate for the context.
-        3. Include the `source_pages` field with all unique page numbers used.
+        1.  Synthesize the key points into a coherent paragraph. Do not just list topics.
+        2.  Summary length should be appropriate for the context.
+        3.  Include the `source_pages` field, listing all unique page numbers used.
+
+        **High-Quality Example:**
+        ```json
+        {{
+          "summary_text": "Simplifying expressions involves combining like terms to make them more concise, following the order of operations (PEMDAS). This is different from solving equations, which are identified by an equal sign and aim to isolate a variable.",
+          "source_pages":
+        }}
+        ```
         **Context with Sources:** --- {context} ---
         """
     )
