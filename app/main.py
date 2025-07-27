@@ -1,16 +1,30 @@
+import multiprocessing
+import platform
+import os
+
+# This is the fix for the semaphore leak warning on macOS.
+# It must be at the VERY top of the file, before any other imports that might use multiprocessing.
+if platform.system() == "Darwin": # 'Darwin' is the system name for macOS
+    multiprocessing.set_start_method("fork")
+
+# This is the fix for the tokenizer parallelism deadlock.
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from .models.schemas import IngestResponse, ContentGenerationRequest
 from .services import document_service, qg_service
 
+# Initialize the FastAPI app
 app = FastAPI(
     title="Robust Agent Framework for Content Generation",
     description="An AI system to generate content from PDF files with dynamic controls and source citations.",
-    version="2.0.0" # Version up!
+    version="2.0.0"
 )
+
+# ... the rest of your main.py file remains exactly the same ...
 
 @app.post("/ingest", response_model=IngestResponse)
 async def ingest_pdf(file: UploadFile = File(...)):
-    # ... (No changes to this endpoint)
     if file.content_type != 'application/pdf':
         raise HTTPException(status_code=400, detail="Invalid file type. Only PDF files are allowed.")
     result = await document_service.process_and_ingest_pdf(file)
@@ -18,16 +32,7 @@ async def ingest_pdf(file: UploadFile = File(...)):
 
 @app.post("/generate/content", response_model=dict)
 def generate_content(request: ContentGenerationRequest):
-    """
-    Generates content based on a topic from the ingested PDF.
-
-    - **topic**: (Optional) The specific topic to focus on.
-    - **content_type**: 'MCQ', 'FillInTheBlank', or 'Summary'.
-    - **num_questions**: How many questions to generate (default 3).
-    - **context_chunks**: How many document chunks to use for context (default 5).
-    """
     try:
-        # Pass all parameters from the request to the service
         generated_data = qg_service.run_generation(
             topic=request.topic,
             content_type=request.content_type,

@@ -25,9 +25,8 @@ class GraphState(TypedDict):
 llm = ChatGroq(model="llama3-8b-8192", temperature=0, api_key=settings.GROQ_API_KEY)
 retriever = None
 
-# --- Agent Nodes (with Final, Production-Grade Prompts) ---
+# --- Agent Nodes (with Final, Perfected Prompts) ---
 def retrieve_documents(state: GraphState) -> GraphState:
-    # This function remains unchanged
     print("--- Node: Retrieving documents ---")
     global retriever
     if retriever is None:
@@ -47,7 +46,6 @@ def retrieve_documents(state: GraphState) -> GraphState:
     return {"documents": documents, **state}
 
 def get_context_with_sources(documents: List[Document]) -> str:
-    # This function remains unchanged
     return "\n\n".join(
         f"Source Page: {doc.metadata.get('page', 'N/A')}\nContent: {doc.page_content}"
         for doc in documents
@@ -56,47 +54,31 @@ def get_context_with_sources(documents: List[Document]) -> str:
 def mcq_agent(state: GraphState) -> GraphState:
     print("--- Node: MCQ Agent ---")
     context_with_sources = get_context_with_sources(state["documents"])
-    
     prompt = ChatPromptTemplate.from_template(
         """
-        **System Instruction:**
-        - Your response MUST be a single, raw JSON object. Do not add conversational text, prefixes, or markdown.
+        **System Instruction:** Your response MUST be a single, raw JSON object. Do not include any conversational text.
+        **Your Task:** Generate {num_questions} multiple-choice questions about '{topic}' based on the provided context.
+        **Rules:**
+        1.  Questions must be factually correct and directly answerable from the text.
+        2.  Incorrect options must be plausible but wrong.
+        3.  Each question MUST include a `source_page` field from the context.
+        4.  If you cannot generate enough high-quality questions, generate as many as you can.
 
-        **Your Task:**
-        - You are an expert question designer and subject matter expert.
-        - Generate {num_questions} high-quality multiple-choice questions based on the `Context with Sources` provided.
-
-        **Rules & Constraints:**
-        1.  **Topic Focus:** Generate questions STRICTLY about the user's topic: '{topic}'. Ignore any unrelated information found in the context.
-        2.  **Factual Accuracy:** Each question, its options, and its explanation must be factually correct and directly derivable from the provided text.
-        3.  **Plausible Distractors:** The incorrect options should be plausible but clearly wrong based on the context.
-        4.  **Citations:** Every question MUST include a `source_page` field, referencing the page number provided in the context.
-        5.  **Graceful Failure:** If you cannot create {num_questions} high-quality questions that follow all rules, generate as many as you can and stop. Do not fabricate content.
-
-        **High-Quality Example (from an algebra text):**
+        **High-Quality Example:**
         ```json
         {{
           "questions": [
             {{
               "question": "What is the primary rule when solving an equation?",
-              "options": [
-                "Always move variables to the left side",
-                "Perform multiplication before addition",
-                "Whatever you do to one side, you must do to the other",
-                "Simplify the right side first"
-              ],
-              "correct_answer": "Whatever you do to one side, you must do to the other",
-              "explanation": "The document states the important rule is to always do to one side of the equal sign what you do to the other.",
+              "options": ["Move variables to the left", "Do the same to both sides", "Simplify the right side first", "Always add before subtracting"],
+              "correct_answer": "Do the same to both sides",
+              "explanation": "The important rule is to always do to one side of the equal sign what you do to the other.",
               "source_page": 4
             }}
           ]
         }}
         ```
-
-        **Context with Sources:**
-        ---
-        {context}
-        ---
+        **Context with Sources:** --- {context} ---
         """
     )
     chain = prompt | llm.with_structured_output(MCQs)
@@ -106,25 +88,17 @@ def mcq_agent(state: GraphState) -> GraphState:
 def fitb_agent(state: GraphState) -> GraphState:
     print("--- Node: Fill-in-the-Blank Agent ---")
     context_with_sources = get_context_with_sources(state["documents"])
-
     prompt = ChatPromptTemplate.from_template(
         """
-        **System Instruction:**
-        - Your response MUST be a single, raw JSON object. Do not add conversational text.
+        **System Instruction:** Your response MUST be a single, raw JSON object. Do not include conversational text.
+        **Your Task:** Generate {num_questions} fill-in-the-blank questions about '{topic}' based on the provided context.
+        **Rules:**
+        1.  Find an important sentence and replace a single key term with '_________'.
+        2.  The `correct_answer` must be the exact term you removed.
+        3.  Include the `source_page` for each question.
+        4.  If you cannot create enough valid questions, return as many as you can.
 
-        **Your Task:**
-        - You are an expert at creating educational assessments.
-        - Generate {num_questions} high-quality fill-in-the-blank questions based on the `Context with Sources`.
-
-        **Rules & Constraints:**
-        1.  **Topic Focus:** Generate questions STRICTLY about the user's topic: '{topic}'.
-        2.  **Sentence Selection:** For each question, select a complete, informative sentence from the context.
-        3.  **Keyword Replacement:** Identify a single, critical keyword or short phrase in that sentence. Replace ONLY that keyword/phrase with '_________'.
-        4.  **Answer Accuracy:** The `correct_answer` field must contain the exact keyword/phrase you removed.
-        5.  **Citations:** Each question MUST include the `source_page`.
-        6.  **Graceful Failure:** If you cannot create enough valid questions, return only as many as you can.
-
-        **High-Quality Example (from an algebra text):**
+        **High-Quality Example:**
         ```json
         {{
           "questions": [
@@ -136,11 +110,7 @@ def fitb_agent(state: GraphState) -> GraphState:
           ]
         }}
         ```
-
-        **Context with Sources:**
-        ---
-        {context}
-        ---
+        **Context with Sources:** --- {context} ---
         """
     )
     chain = prompt | llm.with_structured_output(FillInTheBlanks)
@@ -150,35 +120,24 @@ def fitb_agent(state: GraphState) -> GraphState:
 def summary_agent(state: GraphState) -> GraphState:
     print("--- Node: Summary Agent ---")
     context_with_sources = get_context_with_sources(state["documents"])
-    source_pages = sorted(list(set(doc.metadata.get("page", 0) for doc in state["documents"])))
-    
+    source_pages = sorted(list(set(int(doc.metadata.get("page", 0)) for doc in state["documents"])))
     prompt = ChatPromptTemplate.from_template(
         """
-        **System Instruction:**
-        - Your response MUST be a single, raw JSON object. Do not add conversational text.
+        **System Instruction:** Your response MUST be a single, raw JSON object. Do not include conversational text.
+        **Your Task:** Generate a high-quality summary of the provided context, focusing on the topic of '{topic}'.
+        **Rules:**
+        1.  Synthesize the key points into a coherent paragraph. Do not just list topics.
+        2.  Summary length should be appropriate for the context.
+        3.  Include the `source_pages` field, listing all unique page numbers used.
 
-        **Your Task:**
-        - You are an expert academic writer and information synthesizer.
-        - Generate a meaningful, high-quality summary of the provided `Context with Sources`.
-
-        **Rules & Constraints:**
-        1.  **Synthesize, Don't List:** Your summary should synthesize the key points into a coherent paragraph. Do NOT just list the topics found. Explain the main ideas and how they relate to each other.
-        2.  **Topic Focus:** The summary should focus on the user's topic: '{topic}'.
-        3.  **Dynamic Length:** The length of the summary should be proportional to the amount of context provided. A short context requires a short summary; a longer, more detailed context may require a longer summary to be meaningful.
-        4.  **Citations:** The final JSON must include the `source_pages` field, listing all unique page numbers used to create the summary.
-
-        **High-Quality Example (from an algebra text):**
+        **High-Quality Example:**
         ```json
         {{
-          "summary_text": "The process of simplifying expressions is fundamentally about combining like terms to make the expression as concise as possible, which is governed by the order of operations (PEMDAS). This is distinct from solving equations, which are identifiable by their equal sign and have the goal of isolating a variable by performing inverse operations on both sides.",
+          "summary_text": "Simplifying expressions involves combining like terms to make them more concise, following the order of operations (PEMDAS). This is different from solving equations, which are identified by an equal sign and aim to isolate a variable.",
           "source_pages":
         }}
         ```
-        
-        **Context with Sources:**
-        ---
-        {context}
-        ---
+        **Context with Sources:** --- {context} ---
         """
     )
     chain = prompt | llm.with_structured_output(Summary)
@@ -187,7 +146,7 @@ def summary_agent(state: GraphState) -> GraphState:
     return {"final_output": result.dict()}
 
 
-# --- Router, Validation, and Graph Build (All Unchanged) ---
+# --- Router, Validation, and Graph Build ---
 def route_to_agent(state: GraphState) -> str:
     route_map = {"MCQ": "mcq_agent", "FillInTheBlank": "fitb_agent", "Summary": "summary_agent"}
     return route_map[state['content_type']]
@@ -222,10 +181,7 @@ app_graph = workflow.compile()
 
 def run_generation(topic: Optional[str], content_type: Literal["MCQ", "FillInTheBlank", "Summary"], num_questions: Optional[int], context_chunks: int):
     try:
-        initial_state = {
-            "topic": topic, "content_type": content_type,
-            "num_questions": num_questions, "context_chunks": context_chunks
-        }
+        initial_state = {"topic": topic, "content_type": content_type, "num_questions": num_questions, "context_chunks": context_chunks}
         final_state = app_graph.invoke(initial_state)
         generated_output = final_state.get("final_output")
         validated_output = validate_and_filter_output(generated_output, topic)
