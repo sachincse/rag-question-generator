@@ -1,9 +1,3 @@
-# CogniText: An Agentic Content Generation Framework
-
-CogniText is a robust, multi-agent system designed to generate high-quality educational content from PDF documents. Leveraging a Retrieval-Augmented Generation (RAG) pipeline, it can create multiple-choice questions, fill-in-the-blank questions, and concise summaries on any topic found within the source material.
-
-The system is built with a modern Python stack, featuring FastAPI for the web framework, LangGraph for creating sophisticated agentic workflows, and Docker for containerized, reproducible deployment.
-
 ## Architectural Overview
 
 This project implements a multi-agent system that fulfills all requirements of the technical assessment in a robust and scalable manner. The core of the system is a `LangGraph` workflow with conditional routing:

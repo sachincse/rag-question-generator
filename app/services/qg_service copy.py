@@ -10,7 +10,7 @@ from ..core.config import settings
 from .document_service import get_embeddings_model, VECTOR_STORE_PATH
 from ..models.schemas import MCQs, FillInTheBlanks, Summary
 
-# ... (GraphState and LLM initialization are unchanged) ...
+# --- Graph State Definition ---
 class GraphState(TypedDict):
     topic: Optional[str]
     content_type: Literal["MCQ", "FillInTheBlank", "Summary"]
@@ -19,18 +19,20 @@ class GraphState(TypedDict):
     documents: List[Document]
     final_output: dict
 
+# --- Initialize LLM ---
 llm = ChatGroq(model="llama3-8b-8192", temperature=0, api_key=settings.GROQ_API_KEY)
 retriever = None
 
-# ... (All agent nodes, router, and graph compilation are unchanged) ...
+# --- Agent Nodes ---
 def retrieve_documents(state: GraphState) -> GraphState:
     global retriever
     if retriever is None:
         if not Path(VECTOR_STORE_PATH).exists():
-             raise FileNotFoundError("Vector store not found. Please ingest a document first.")
+            raise FileNotFoundError("Vector store not found. Please ingest a document first.")
         embeddings = get_embeddings_model()
         vector_store = FAISS.load_local(VECTOR_STORE_PATH, embeddings, allow_dangerous_deserialization=True)
         retriever = vector_store.as_retriever()
+    
     retriever.search_kwargs['k'] = state['context_chunks']
     topic = state.get("topic")
     documents = retriever.invoke(topic) if topic else retriever.invoke("general overview")[:state['context_chunks']]
@@ -60,6 +62,7 @@ def mcq_agent(state: GraphState) -> GraphState:
 
 def fitb_agent(state: GraphState) -> GraphState:
     context_with_sources = get_context_with_sources(state["documents"])
+    # THIS IS THE CORRECTED, HIGH-QUALITY PROMPT WITH THE FEW-SHOT EXAMPLE
     prompt = ChatPromptTemplate.from_template(
         """
         **System Instruction:** Your response MUST be a single, raw JSON object. Do not add conversational text.
@@ -108,11 +111,17 @@ def summary_agent(state: GraphState) -> GraphState:
     result.source_pages = source_pages
     return {"final_output": result.dict()}
 
+# --- Router Logic ---
 def route_to_agent(state: GraphState) -> str:
     content_type = state['content_type']
-    route_map = {"MCQ": "mcq_agent", "FillInTheBlank": "fitb_agent", "Summary": "summary_agent"}
+    route_map = {
+        "MCQ": "mcq_agent",
+        "FillInTheBlank": "fitb_agent",
+        "Summary": "summary_agent"
+    }
     return route_map[content_type]
 
+# --- Build the Graph ---
 workflow = StateGraph(GraphState)
 workflow.add_node("retriever", retrieve_documents)
 workflow.add_node("mcq_agent", mcq_agent)
@@ -120,24 +129,20 @@ workflow.add_node("fitb_agent", fitb_agent)
 workflow.add_node("summary_agent", summary_agent)
 workflow.set_entry_point("retriever")
 workflow.add_conditional_edges("retriever", route_to_agent, {
-    "mcq_agent": "mcq_agent", "fitb_agent": "fitb_agent", "summary_agent": "summary_agent"
+    "mcq_agent": "mcq_agent",
+    "fitb_agent": "fitb_agent",
+    "summary_agent": "summary_agent",
 })
 workflow.add_edge("mcq_agent", END)
 workflow.add_edge("fitb_agent", END)
 workflow.add_edge("summary_agent", END)
 app_graph = workflow.compile()
 
-# --- Main Service Function (Corrected: No generic try/except) ---
+# --- Main Service Function ---
 def run_generation(topic: Optional[str], content_type: str, num_questions: Optional[int], context_chunks: int):
-    # By removing the try/except block, we allow specific errors like
-    # FileNotFoundError to propagate up to the API layer (main.py),
-    # which can then handle it correctly and return a 400 status code.
-    # The API layer will still catch any truly unexpected errors and return a 500.
-    initial_state = {
-        "topic": topic,
-        "content_type": content_type,
-        "num_questions": num_questions,
-        "context_chunks": context_chunks
-    }
-    final_state = app_graph.invoke(initial_state)
-    return final_state.get("final_output")
+    try:
+        initial_state = {"topic": topic, "content_type": content_type, "num_questions": num_questions, "context_chunks": context_chunks}
+        final_state = app_graph.invoke(initial_state)
+        return final_state.get("final_output")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"An error occurred during content generation: {str(e)}")
