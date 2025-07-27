@@ -1,4 +1,4 @@
-from typing import Literal, TypedDict, List, Optional # <--- ADD Optional HERE
+from typing import Literal, TypedDict, List
 from pathlib import Path
 from fastapi import HTTPException
 
@@ -14,21 +14,24 @@ from ..models.schemas import MCQs, FillInTheBlanks, Summary
 
 # --- Graph State Definition (now includes all parameters) ---
 class GraphState(TypedDict):
-    topic: Optional[str] # <--- Changed here
+    topic: str | None
     content_type: Literal["MCQ", "FillInTheBlank", "Summary"]
     num_questions: int
     context_chunks: int
-    documents: List[Document]
+    documents: List[Document] # We now pass the full Document object to retain metadata
     final_output: dict
 
 # --- Initialize LLM ---
 llm = ChatGroq(model="llama3-8b-8192", temperature=0, api_key=settings.GROQ_API_KEY)
+# Global retriever variable, initialized on first generation request
 retriever = None
 
 # --- Agent Nodes (Updated) ---
 def retrieve_documents(state: GraphState) -> GraphState:
+    """Retrieves documents based on the topic or gets a general set."""
     print("--- Node: Retrieving documents ---")
     global retriever
+    # Lazy load the retriever if it hasn't been already
     if retriever is None:
         if not Path(VECTOR_STORE_PATH).exists():
              raise FileNotFoundError("Vector store not found. Please ingest a document first.")
@@ -36,23 +39,36 @@ def retrieve_documents(state: GraphState) -> GraphState:
         vector_store = FAISS.load_local(VECTOR_STORE_PATH, embeddings, allow_dangerous_deserialization=True)
         retriever = vector_store.as_retriever()
     
+    # Configure the retriever for this specific request
     retriever.search_kwargs['k'] = state['context_chunks']
     
     topic = state.get("topic")
     if topic:
+        # If a topic is provided, perform a standard similarity search
         print(f"Retrieving {state['context_chunks']} chunks for topic: {topic}")
         documents = retriever.invoke(topic)
     else:
+        # If no topic, get a diverse set of documents by querying the index directly
         print(f"No topic provided. Retrieving {state['context_chunks']} general chunks.")
-        documents = retriever.invoke("general algebra concepts review")[:state['context_chunks']] # Changed generic query for no topic
+        # This is a simple way to get 'random' documents from the store.
+        # A more advanced method could use Maximal Marginal Relevance (MMR).
+        num_docs_in_store = retriever.vectorstore.index.ntotal
+        k = min(state['context_chunks'], num_docs_in_store)
+        # Fetching by index is not directly supported, so we do a broad query
+        documents = retriever.invoke("general review of algebra concepts")[:k]
 
+    # We now pass the full Document objects to retain metadata like page number
     return {"documents": documents, **state}
 
+
 def get_context_with_sources(documents: List[Document]) -> str:
+    """Formats the context string and includes page numbers."""
     return "\n\n".join(
         f"Source Page: {doc.metadata.get('page', 'N/A')}\nContent: {doc.page_content}"
         for doc in documents
     )
+
+# --- All agent prompts are updated to handle dynamic counts and source pages ---
 
 def mcq_agent(state: GraphState) -> GraphState:
     print("--- Node: MCQ Agent ---")
@@ -126,6 +142,7 @@ def summary_agent(state: GraphState) -> GraphState:
         """
     )
     chain = prompt | llm.with_structured_output(Summary)
+    # Manually add the source_pages after generation, as it's metadata
     result = chain.invoke({"context": context_with_sources})
     result.source_pages = source_pages
     return {"final_output": result.dict()}
@@ -150,7 +167,8 @@ workflow.add_edge("summary_agent", END)
 app_graph = workflow.compile()
 
 # --- Main Service Function (Updated to pass all params) ---
-def run_generation(topic: Optional[str], content_type: Literal["MCQ", "FillInTheBlank", "Summary"], num_questions: int, context_chunks: int): # <--- Changed topic type here
+def run_generation(topic: str | None, content_type: str, num_questions: int, context_chunks: int):
+    """Invokes the graph to generate the specified content."""
     try:
         initial_state = {
             "topic": topic,
