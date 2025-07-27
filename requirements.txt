@@ -7,6 +7,6 @@ langchain-groq
 langchain-community
 pypdf
 faiss-cpu
-numpy<2.0¸                # <--- ADD THIS LINE
+numpy<2.0
 sentence-transformers
 pydantic-settings
