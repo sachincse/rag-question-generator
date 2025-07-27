@@ -11,7 +11,7 @@ UPLOAD_DIR = Path("uploads")
 VECTOR_STORE_DIR = Path("vector_store")
 UPLOAD_DIR.mkdir(exist_ok=True)
 VECTOR_STORE_DIR.mkdir(exist_ok=True)
-VECTOR_STORE_PATH = str(VECTOR_STORE_DIR / "algebra_review.faiss")
+VECTOR_STORE_PATH = str(VECTOR_STORE_DIR / "docs.faiss")
 
 def get_embeddings_model():
     """Loads the embedding model."""
