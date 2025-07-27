@@ -37,13 +37,13 @@ To build a more resilient and production-ready system, a more sophisticated arch
 1.  **Clone the repository:**
     ```bash
     git clone <your-repo-url>
-    cd rag-question-generator
+    cd rag-question-generator-1
     ```
 
 2.  **Configure Environment Variables:**
-    Create a file named `.env` in the root of the project directory. Add your API key to this file:
+    Create a file named `.env` in the root of the project directory. Add your API key to this file. **The key must not be in quotes.**
     ```
-    GROQ_API_KEY="gsk_YourSecretKeyGoesHere"
+    GROQ_API_KEY=gsk_YourSecretKeyGoesHere
     ```
 
 ---
@@ -57,13 +57,13 @@ To build a more resilient and production-ready system, a more sophisticated arch
     ```
 
 2.  **Install dependencies:**
-    The `numpy<2.0` pin is critical for compatibility.
+    The `numpy<2.0` pin is critical for compatibility with the project's libraries.
     ```bash
     pip install -r requirements.txt
     ```
 
 3.  **Run the application:**
-    To avoid multiprocessing issues on macOS, run without the `--reload` flag for stability.
+    To avoid potential multiprocessing issues, run without the `--reload` flag for stability.
     ```bash
     python3 -m uvicorn app.main:app
     ```
@@ -95,13 +95,13 @@ To build a more resilient and production-ready system, a more sophisticated arch
 
 ---
 
-## API Usage
+## API Usage & Sample Questions
 
-Interact with the API via the documentation at `http://127.0.0.1:8000/docs` or `curl`.
+Interact with the API via the documentation at `http://127.0.0.1:8000/docs` or `curl`. **You must ingest a document before generating content.**
 
 ### 1. Ingest a Document
 
-Place your PDF (e.g., `A_quick_Algebra_Review.pdf`) in the project root.
+Place `A_quick_Algebra_Review.pdf` in the project root.
 
 ```bash
 curl -X POST -F "file=@A_quick_Algebra_Review.pdf" http://localhost:8000/ingest
@@ -109,7 +109,9 @@ curl -X POST -F "file=@A_quick_Algebra_Review.pdf" http://localhost:8000/ingest
 
 ### 2. Generate Content (`/generate/questions`)
 
-#### Example: Generate 2 MCQs with citations
+#### Example 1: Generate Multiple Choice Questions
+
+**Request:**
 ```bash
 curl -X POST -H "Content-Type: application/json" -d '{
   "topic": "Solving Equations",
@@ -119,21 +121,118 @@ curl -X POST -H "Content-Type: application/json" -d '{
 }' http://localhost:8000/generate/questions
 ```
 
-#### Example: Generate a Summary (no `num_questions` needed)
-```bash
-curl -X POST -H "Content-Type: application/json" -d '{
-  "topic": "Laws of Exponents",
-  "content_type": "Summary",
-  "context_chunks": 7
-}' http://localhost:8000/generate/questions
+**Sample Response:**
+```json
+{
+  "questions": [
+    {
+      "question": "What is the primary rule of solving an equation?",
+      "options": [
+        "Move variables left",
+        "Do the same to both sides",
+        "Simplify right side first",
+        "Add before subtracting"
+      ],
+      "correct_answer": "Do the same to both sides",
+      "explanation": "The rule is to always do to one side of the equal sign what you do to the other.",
+      "source_page": 4
+    },
+    {
+      "question": "What is the correct solution to the equation x + 9 = -6?",
+      "options": [
+        "x = -1/2",
+        "x = -15",
+        "x = 9/5",
+        "x = 2"
+      ],
+      "correct_answer": "x = -15",
+      "explanation": "To solve the equation, we need to get our variable by itself. To “move” the 9 to the other side, we need to subtract 9 from both sides of the equal sign, since 9 was added to x in the original problem.",
+      "source_page": 3
+    }
+  ]
+}
 ```
 
-#### Example: Generate General Fill-in-the-Blanks (no `topic`)
+#### Example 2: Generate Fill-in-the-Blank Questions
+
+**Request:**
 ```bash
 curl -X POST -H "Content-Type: application/json" -d '{
-  "topic": null,
+  "topic": "exponents",
   "content_type": "FillInTheBlank",
   "num_questions": 5,
   "context_chunks": 8
 }' http://localhost:8000/generate/questions
 ```
+
+**Sample Response:**
+```json
+{
+  "questions": [
+    {
+      "sentence": "When you have a _________ exponent, it means inverse, (the negative exponent is an operation that “flips” only the base that it applies to).",
+      "correct_answer": "negative",
+      "source_page": 14
+    },
+    {
+      "sentence": "In order for two terms to multiply together and result in zero, ONE OF THEM MUST BE _________.",
+      "correct_answer": "ZERO",
+      "source_page": 17
+    },
+    {
+      "sentence": "When you square a number, you multiply the number by itself, so it’s impossible to have one be _______ and one be positive.",
+      "correct_answer": "negative",
+      "source_page": 28
+    },
+    {
+      "sentence": "A rational expression is an expression that can be written as a fraction where the variable is in the _______ (on bottom).",
+      "correct_answer": "denominator",
+      "source_page": 23
+    },
+    {
+      "sentence": "The domain (possible values of x) is all real numbers except for values that make the _______ equal to zero.",
+      "correct_answer": "denominator",
+      "source_page": 23
+    }
+  ]
+}
+```
+
+#### Example 3: Generate a Summary
+
+**Request:**
+```bash
+curl -X POST -H "Content-Type: application/json" -d '{
+  "topic": "Quadratics",
+  "content_type": "Summary",
+  "context_chunks": 5
+}' http://localhost:8000/generate/questions
+```
+
+**Sample Response:**
+```json
+{
+  "summary_text": "Quadratic equations are equations that have a variable to the second power, like x2 + x = 6. Since x2 and x are not like terms they can not be combined. We need a new way for finding solutions to quadratic equations.",
+  "source_pages": [
+    16,
+    17,
+    18,
+    19,
+    28
+  ]
+}
+```
+
+---
+
+## Running Unit Tests
+
+The project includes a basic test suite to demonstrate the principles of test-driven development. The tests cover basic API functionality like the root endpoint and error handling for invalid file types.
+
+1.  Ensure you have followed the "Running the Application Locally" steps to set up your environment and install dependencies.
+2.  From the project root directory, run the following command:
+
+```bash
+pytest
+```
+The tests will execute and print the results to the console.````
