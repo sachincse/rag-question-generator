@@ -7,6 +7,8 @@ langchain-groq
 langchain-community
 pypdf
 faiss-cpu
-numpy<2.0¸                # <--- ADD THIS LINE
+numpy<2.0                 # <--- FIXED typo
 sentence-transformers
 pydantic-settings
+pytest
+httpx

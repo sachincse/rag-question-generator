@@ -35,6 +35,7 @@ def generate_content(request: ContentGenerationRequest):
     - Orchestrates a multi-agent workflow that retrieves relevant documents
       and routes to a specialized agent for generation.
     - Returns the generated content as a JSON object.
+    - For MCQ and FillInTheBlank, the response also includes an evaluation of the generated questions.
     """
     try:
         # Delegate the core logic to the question generation service
