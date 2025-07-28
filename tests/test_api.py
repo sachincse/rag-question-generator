@@ -2,7 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 from app.main import app
 import os
-import shutil # <--- Import the shutil library
+import shutil
 
 @pytest.fixture(scope="module")
 def client():
@@ -35,10 +35,8 @@ def test_generate_before_ingest(client):
     # Define the path to the vector store directory
     vector_store_dir = "vector_store"
 
-    # --- THIS IS THE CORRECTED CLEANUP LOGIC ---
     # Ensure the entire vector_store directory is removed before the test
     if os.path.exists(vector_store_dir):
-        # Use shutil.rmtree() to recursively delete the directory and its contents
         shutil.rmtree(vector_store_dir)
         
     request_data = {
