@@ -119,7 +119,7 @@ curl -X POST -H "Content-Type: application/json" -d '{
 }' http://localhost:8000/generate/questions
 ```
 
-**Actual Response:**
+**Sample Response:**
 ```json
 {
   "questions": [
@@ -168,26 +168,31 @@ curl -X POST -H "Content-Type: application/json" -d '{
 **Request:**
 ```bash
 curl -X POST -H "Content-Type: application/json" -d '{
-  "topic": "Inequalities",
+  "topic": "Solving Equations",
   "content_type": "FillInTheBlank",
-  "num_questions": 2,
-  "context_chunks": 8
+  "num_questions": 3,
+  "context_chunks": 3
 }' http://localhost:8000/generate/questions
 ```
 
-**Actual Response:**
+**Sample Response:**
 ```json
 {
   "questions": [
     {
-      "sentence": "The solution to the inequality x > 0 is _________.",
-      "correct_answer": "x > 0",
-      "source_page": 7
+      "sentence": "To solve an equation, we need to get our variable by itself. To 'move' the 9 to the other side, we need to subtract 9 from both sides of the equal sign, since 9 was _________ to x in the original problem.",
+      "correct_answer": "added",
+      "source_page": 3
     },
     {
-      "sentence": "When solving an inequality, we must do the same operation to _________ side of the inequality as we do to the other side.",
-      "correct_answer": "both",
-      "source_page": 6
+      "sentence": "When solving an equation, the important rule is to always do to one side of the equal sign what we do to the _________.",
+      "correct_answer": "other",
+      "source_page": 3
+    },
+    {
+      "sentence": "To solve the equation 7(x + 4) = 6x + 24, we need to distribute and then move one thing at a time to leave the term with the variable until the end. They subtract 7; so we add 7 (to both sides). They multiply by 5; we _________ by five.",
+      "correct_answer": "divide",
+      "source_page": 30
     }
   ]
 }
@@ -204,7 +209,7 @@ curl -X POST -H "Content-Type: application/json" -d '{
 }' http://localhost:8000/generate/questions
 ```
 
-**Actual Response:**
+**Sample Response:**
 ```json
 {
   "summary_text": "Radical expressions are mathematical phrases that contain roots of variables. The square root is a number that can be squared to get another number. For instance, the square root of 25, 25, is 5, because if you square 5, you get 25. There is one basic rule when dealing with roots: if the root is even, you cannot have a negative number. This means that there can be no negative numbers in square roots, fourth roots, sixth roots, etc. When solving radical equations, we raise both sides of the equation to the power of the radical, but before we do that, we need to get the radical on one side of the equation by itself. It is also important that we check our solution to make sure that it exists in our domain.",
