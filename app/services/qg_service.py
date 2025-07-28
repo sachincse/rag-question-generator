@@ -10,7 +10,7 @@ from ..core.config import settings
 from .document_service import get_embeddings_model, VECTOR_STORE_PATH
 from ..models.schemas import MCQs, FillInTheBlanks, Summary
 
-# ... (GraphState and LLM initialization are unchanged) ...
+# --- Graph State Definition ---
 class GraphState(TypedDict):
     topic: Optional[str]
     content_type: Literal["MCQ", "FillInTheBlank", "Summary"]
@@ -19,39 +19,70 @@ class GraphState(TypedDict):
     documents: List[Document]
     final_output: dict
 
-llm = ChatGroq(model="llama3-8b-8192", temperature=0, api_key=settings.GROQ_API_KEY)
-retriever = None
+# --- Initialize LLM (Stateless) ---
+llm = ChatGroq(model="llama3-8b-8192", temperature=0.01, api_key=settings.GROQ_API_KEY)
 
-# ... (All agent nodes, router, and graph compilation are unchanged) ...
+# --- Agent Nodes (with Rich Prompts and Stateless Retriever) ---
 def retrieve_documents(state: GraphState) -> GraphState:
-    global retriever
-    if retriever is None:
-        if not Path(VECTOR_STORE_PATH).exists():
-             raise FileNotFoundError("Vector store not found. Please ingest a document first.")
-        embeddings = get_embeddings_model()
-        vector_store = FAISS.load_local(VECTOR_STORE_PATH, embeddings, allow_dangerous_deserialization=True)
-        retriever = vector_store.as_retriever()
-    retriever.search_kwargs['k'] = state['context_chunks']
+    print("--- Node: Retrieving documents (Loading fresh retriever) ---")
+    if not Path(VECTOR_STORE_PATH).exists():
+        raise FileNotFoundError("Vector store not found. Please ingest a document first.")
+    
+    embeddings = get_embeddings_model()
+    vector_store = FAISS.load_local(VECTOR_STORE_PATH, embeddings, allow_dangerous_deserialization=True)
+    retriever = vector_store.as_retriever(search_kwargs={'k': state['context_chunks']})
+    
     topic = state.get("topic")
-    documents = retriever.invoke(topic) if topic else retriever.invoke("general overview")[:state['context_chunks']]
+    documents = retriever.invoke(topic) if topic else retriever.invoke("general overview of the document's main concepts")
     return {"documents": documents, **state}
 
 def get_context_with_sources(documents: List[Document]) -> str:
     return "\n\n".join(f"Source Page: {doc.metadata.get('page', 'N/A')}\nContent: {doc.page_content}" for doc in documents)
 
 def mcq_agent(state: GraphState) -> GraphState:
+    print("--- Node: MCQ Agent ---")
     context_with_sources = get_context_with_sources(state["documents"])
+    
     prompt = ChatPromptTemplate.from_template(
         """
-        **System Instruction:** Your response MUST be a single, raw JSON object. Do not include any conversational text.
-        **Your Task:** Generate {num_questions} multiple-choice questions about '{topic}' based on the context.
-        **Rules:**
-        1. Questions must be factually correct and answerable from the text.
-        2. Incorrect options must be plausible but wrong.
-        3. Each question MUST include a `source_page` field from the context.
-        4. If you cannot create enough valid questions, generate as many as you can.
-        **Example:** {{"questions": [{{"question": "What is the primary rule of solving an equation?", "options": ["Move variables left", "Do the same to both sides", "Simplify right side first", "Add before subtracting"], "correct_answer": "Do the same to both sides", "explanation": "The rule is to always do to one side of the equal sign what you do to the other.", "source_page": 4}}]}}
-        **Context with Sources:** --- {context} ---
+        **System Instruction:**
+        - Your response MUST be a single, raw JSON object. Do not include any conversational text, prefixes, or markdown.
+
+        **Your Task:**
+        - You are an expert question designer and subject matter expert.
+        - Generate {num_questions} high-quality multiple-choice questions based on the `Context with Sources` provided.
+
+        **Rules & Constraints:**
+        1.  **Topic Focus:** Generate questions STRICTLY about the user's topic: '{topic}'. Ignore any unrelated information found in the context.
+        2.  **Factual Accuracy:** Each question, its options, and its explanation must be factually correct and directly derivable from the provided text.
+        3.  **Plausible Distractors:** The incorrect options should be plausible but clearly wrong based on the context.
+        4.  **Citations:** Every question MUST include a `source_page` field, referencing the page number provided in the context.
+        5.  **Graceful Failure:** If you cannot create {num_questions} high-quality questions that follow all rules, generate as many as you can and stop. Do not fabricate content.
+
+        **High-Quality Example (from an algebra text):**
+        ```json
+        {{
+          "questions": [
+            {{
+              "question": "What is the primary rule when solving an equation?",
+              "options": [
+                "Always move variables to the left side",
+                "Perform multiplication before addition",
+                "Whatever you do to one side, you must do to the other",
+                "Simplify the right side first"
+              ],
+              "correct_answer": "Whatever you do to one side, you must do to the other",
+              "explanation": "The document states the important rule is to always do to one side of the equal sign what you do to the other.",
+              "source_page": 4
+            }}
+          ]
+        }}
+        ```
+
+        **Context with Sources:**
+        ---
+        {context}
+        ---
         """
     )
     chain = prompt | llm.with_structured_output(MCQs)
@@ -59,16 +90,25 @@ def mcq_agent(state: GraphState) -> GraphState:
     return {"final_output": result.dict()}
 
 def fitb_agent(state: GraphState) -> GraphState:
+    print("--- Node: Fill-in-the-Blank Agent ---")
     context_with_sources = get_context_with_sources(state["documents"])
+
     prompt = ChatPromptTemplate.from_template(
         """
-        **System Instruction:** Your response MUST be a single, raw JSON object. Do not add conversational text.
-        **Your Task:** Generate {num_questions} fill-in-the-blank questions about '{topic}' based on the context.
-        **Rules:**
-        1. Find an important sentence and replace a single key term with '_________'.
-        2. The `correct_answer` must be the exact term you removed.
-        3. Include the `source_page` for each question.
-        4. If you cannot create enough valid questions, return as many as you can.
+        **System Instruction:**
+        - Your response MUST be a single, raw JSON object. Do not add conversational text.
+
+        **Your Task:**
+        - You are an expert at creating educational assessments.
+        - Generate {num_questions} high-quality fill-in-the-blank questions based on the `Context with Sources`.
+
+        **Rules & Constraints:**
+        1.  **Topic Focus:** Generate questions STRICTLY about the user's topic: '{topic}'.
+        2.  **Sentence Selection:** For each question, select a complete, informative sentence from the context.
+        3.  **Keyword Replacement:** Identify a single, critical keyword or short phrase in that sentence. Replace ONLY that keyword/phrase with '_________'.
+        4.  **Answer Accuracy:** The `correct_answer` field must contain the exact keyword/phrase you removed.
+        5.  **Citations:** Each question MUST include the `source_page`.
+        6.  **Graceful Failure:** If you cannot create enough valid questions, return only as many as you can.
 
         **High-Quality Example (from an algebra text):**
         ```json
@@ -82,7 +122,11 @@ def fitb_agent(state: GraphState) -> GraphState:
           ]
         }}
         ```
-        **Context with Sources:** --- {context} ---
+
+        **Context with Sources:**
+        ---
+        {context}
+        ---
         """
     )
     chain = prompt | llm.with_structured_output(FillInTheBlanks)
@@ -90,25 +134,37 @@ def fitb_agent(state: GraphState) -> GraphState:
     return {"final_output": result.dict()}
 
 def summary_agent(state: GraphState) -> GraphState:
+    print("--- Node: Summary Agent ---")
     context_with_sources = get_context_with_sources(state["documents"])
     source_pages = sorted(list(set(int(doc.metadata.get("page", 0)) for doc in state["documents"])))
+    
     prompt = ChatPromptTemplate.from_template(
         """
-        **System Instruction:** Your response MUST be a single, raw JSON object. Do not include conversational text.
-        **Your Task:** Generate a high-quality summary of the provided context, focusing on the topic of '{topic}'.
-        **Rules:**
-        1.  Synthesize the key points into a coherent paragraph. Do not just list topics.
-        2.  Summary length should be appropriate for the context.
-        3.  Include the `source_pages` field, listing all unique page numbers used.
+        **System Instruction:**
+        - Your response MUST be a single, raw JSON object. Do not include conversational text.
 
-        **High-Quality Example:**
+        **Your Task:**
+        - You are an expert academic writer and information synthesizer.
+        - Generate a meaningful, high-quality summary of the provided `Context with Sources`.
+
+        **Rules & Constraints:**
+        1.  **Synthesize, Don't List:** Your summary should synthesize the key points into a coherent paragraph. Do NOT just list the topics found. Explain the main ideas and how they relate to each other.
+        2.  **Topic Focus:** The summary should focus on the user's topic: '{topic}'.
+        3.  **Dynamic Length:** The length of the summary should be proportional to the amount of context provided.
+        4.  **Citations:** The final JSON must include the `source_pages` field, listing all unique page numbers used.
+
+        **High-Quality Example (from an algebra text):**
         ```json
         {{
-          "summary_text": "Simplifying expressions involves combining like terms to make them more concise, following the order of operations (PEMDAS). This is different from solving equations, which are identified by an equal sign and aim to isolate a variable.",
+          "summary_text": "Simplifying expressions involves combining like terms to make them more concise, following the order of operations (PEMDAS). This is distinct from solving equations, which are identifiable by an equal sign and aim to isolate a variable.",
           "source_pages":
         }}
         ```
-        **Context with Sources:** --- {context} ---
+        
+        **Context with Sources:**
+        ---
+        {context}
+        ---
         """
     )
     chain = prompt | llm.with_structured_output(Summary)
@@ -116,10 +172,10 @@ def summary_agent(state: GraphState) -> GraphState:
     result.source_pages = source_pages
     return {"final_output": result.dict()}
 
+# --- Router and Graph Build (Unchanged) ---
 def route_to_agent(state: GraphState) -> str:
-    content_type = state['content_type']
     route_map = {"MCQ": "mcq_agent", "FillInTheBlank": "fitb_agent", "Summary": "summary_agent"}
-    return route_map[content_type]
+    return route_map[state['content_type']]
 
 workflow = StateGraph(GraphState)
 workflow.add_node("retriever", retrieve_documents)
@@ -135,12 +191,8 @@ workflow.add_edge("fitb_agent", END)
 workflow.add_edge("summary_agent", END)
 app_graph = workflow.compile()
 
-# --- Main Service Function (Corrected: No generic try/except) ---
+# --- Main Service Function (Now with final slicing logic) ---
 def run_generation(topic: Optional[str], content_type: str, num_questions: Optional[int], context_chunks: int):
-    # By removing the try/except block, we allow specific errors like
-    # FileNotFoundError to propagate up to the API layer (main.py),
-    # which can then handle it correctly and return a 400 status code.
-    # The API layer will still catch any truly unexpected errors and return a 500.
     initial_state = {
         "topic": topic,
         "content_type": content_type,
@@ -148,4 +200,10 @@ def run_generation(topic: Optional[str], content_type: str, num_questions: Optio
         "context_chunks": context_chunks
     }
     final_state = app_graph.invoke(initial_state)
-    return final_state.get("final_output")
+    generated_output = final_state.get("final_output")
+    
+    # Enforce the user's requested number of questions
+    if num_questions and "questions" in generated_output:
+        generated_output["questions"] = generated_output["questions"][:num_questions]
+        
+    return generated_output

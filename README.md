@@ -1,3 +1,9 @@
+# CogniText: An Agentic Content Generation Framework
+
+CogniText is a robust, multi-agent system designed to generate high-quality educational content from PDF documents. Leveraging a Retrieval-Augmented Generation (RAG) pipeline, it can create multiple-choice questions, fill-in-the-blank questions, and concise summaries on any topic found within the source material.
+
+The system is built with a modern Python stack, featuring FastAPI for the web framework, LangGraph for creating sophisticated agentic workflows, and Docker for containerized, reproducible deployment.
+
 ## Architectural Overview
 
 This project implements a multi-agent system that fulfills all requirements of the technical assessment in a robust and scalable manner. The core of the system is a `LangGraph` workflow with conditional routing:
@@ -91,11 +97,9 @@ To build a more resilient and production-ready system, a more sophisticated arch
 
 ## API Usage & Sample Questions
 
-Interact with the API via the documentation at `http://127.0.0.1:8000/docs` or `curl`. **You must ingest a document before generating content.**
+Interact with the API via the documentation at `http://127.0.0.1:8000/docs` or `curl`. **You must ingest `A_quick_Algebra_Review.pdf` before generating content.**
 
 ### 1. Ingest a Document
-
-Place `A_quick_Algebra_Review.pdf` in the project root.
 
 ```bash
 curl -X POST -F "file=@A_quick_Algebra_Review.pdf" http://localhost:8000/ingest
@@ -108,40 +112,52 @@ curl -X POST -F "file=@A_quick_Algebra_Review.pdf" http://localhost:8000/ingest
 **Request:**
 ```bash
 curl -X POST -H "Content-Type: application/json" -d '{
-  "topic": "Solving Equations",
+  "topic": "Inequalities",
   "content_type": "MCQ",
-  "num_questions": 2,
-  "context_chunks": 5
+  "num_questions": 3,
+  "context_chunks": 8
 }' http://localhost:8000/generate/questions
 ```
 
-**Sample Response:**
+**Actual Response:**
 ```json
 {
   "questions": [
     {
-      "question": "What is the primary rule of solving an equation?",
+      "question": "What is the correct method to solve an inequality?",
       "options": [
-        "Move variables left",
-        "Do the same to both sides",
-        "Simplify right side first",
-        "Add before subtracting"
+        "Always move variables to the left side",
+        "Perform multiplication before addition",
+        "Whatever you do to one side, you must do to the other",
+        "Simplify the right side first"
       ],
-      "correct_answer": "Do the same to both sides",
-      "explanation": "The rule is to always do to one side of the equal sign what you do to the other.",
-      "source_page": 4
+      "correct_answer": "Whatever you do to one side, you must do to the other",
+      "explanation": "The document states the important rule is to always do to one side of the equal sign what you do to the other.",
+      "source_page": 6
     },
     {
-      "question": "What is the correct solution to the equation x + 9 = -6?",
+      "question": "What is the correct method to solve an inequality with a division operation?",
       "options": [
-        "x = -1/2",
-        "x = -15",
-        "x = 9/5",
-        "x = 2"
+        "Multiply both sides by the divisor",
+        "Divide both sides by the divisor",
+        "Flip the inequality sign and multiply by the divisor",
+        "Flip the inequality sign and divide by the divisor"
       ],
-      "correct_answer": "x = -15",
-      "explanation": "To solve the equation, we need to get our variable by itself. To “move” the 9 to the other side, we need to subtract 9 from both sides of the equal sign, since 9 was added to x in the original problem.",
-      "source_page": 3
+      "correct_answer": "Flip the inequality sign and multiply by the divisor",
+      "explanation": "When dividing by a negative number, the inequality sign must be flipped.",
+      "source_page": 7
+    },
+    {
+      "question": "What is the correct method to solve an absolute value equation?",
+      "options": [
+        "Take the absolute value of both sides",
+        "Flip the inequality sign and take the absolute value of both sides",
+        "Take the absolute value of one side and flip the inequality sign",
+        "Take the absolute value of both sides and flip the inequality sign"
+      ],
+      "correct_answer": "Flip the inequality sign and take the absolute value of both sides",
+      "explanation": "When solving absolute value equations, we must consider that the number inside could have been negative before you applied the absolute value.",
+      "source_page": 11
     }
   ]
 }
@@ -152,41 +168,26 @@ curl -X POST -H "Content-Type: application/json" -d '{
 **Request:**
 ```bash
 curl -X POST -H "Content-Type: application/json" -d '{
-  "topic": "exponents",
+  "topic": "Inequalities",
   "content_type": "FillInTheBlank",
-  "num_questions": 5,
+  "num_questions": 2,
   "context_chunks": 8
 }' http://localhost:8000/generate/questions
 ```
 
-**Sample Response:**
+**Actual Response:**
 ```json
 {
   "questions": [
     {
-      "sentence": "When you have a _________ exponent, it means inverse, (the negative exponent is an operation that “flips” only the base that it applies to).",
-      "correct_answer": "negative",
-      "source_page": 14
+      "sentence": "The solution to the inequality x > 0 is _________.",
+      "correct_answer": "x > 0",
+      "source_page": 7
     },
     {
-      "sentence": "In order for two terms to multiply together and result in zero, ONE OF THEM MUST BE _________.",
-      "correct_answer": "ZERO",
-      "source_page": 17
-    },
-    {
-      "sentence": "When you square a number, you multiply the number by itself, so it’s impossible to have one be _______ and one be positive.",
-      "correct_answer": "negative",
-      "source_page": 28
-    },
-    {
-      "sentence": "A rational expression is an expression that can be written as a fraction where the variable is in the _______ (on bottom).",
-      "correct_answer": "denominator",
-      "source_page": 23
-    },
-    {
-      "sentence": "The domain (possible values of x) is all real numbers except for values that make the _______ equal to zero.",
-      "correct_answer": "denominator",
-      "source_page": 23
+      "sentence": "When solving an inequality, we must do the same operation to _________ side of the inequality as we do to the other side.",
+      "correct_answer": "both",
+      "source_page": 6
     }
   ]
 }
@@ -197,22 +198,23 @@ curl -X POST -H "Content-Type: application/json" -d '{
 **Request:**
 ```bash
 curl -X POST -H "Content-Type: application/json" -d '{
-  "topic": "Quadratics",
+  "topic": "Radicals",
   "content_type": "Summary",
-  "context_chunks": 5
+  "context_chunks": 8
 }' http://localhost:8000/generate/questions
 ```
 
-**Sample Response:**
+**Actual Response:**
 ```json
 {
-  "summary_text": "Quadratic equations are equations that have a variable to the second power, like x2 + x = 6. Since x2 and x are not like terms they can not be combined. We need a new way for finding solutions to quadratic equations.",
+  "summary_text": "Radical expressions are mathematical phrases that contain roots of variables. The square root is a number that can be squared to get another number. For instance, the square root of 25, 25, is 5, because if you square 5, you get 25. There is one basic rule when dealing with roots: if the root is even, you cannot have a negative number. This means that there can be no negative numbers in square roots, fourth roots, sixth roots, etc. When solving radical equations, we raise both sides of the equation to the power of the radical, but before we do that, we need to get the radical on one side of the equation by itself. It is also important that we check our solution to make sure that it exists in our domain.",
   "source_pages": [
-    16,
-    17,
-    18,
+    0,
     19,
-    28
+    24,
+    28,
+    29,
+    30
   ]
 }
 ```
@@ -221,7 +223,7 @@ curl -X POST -H "Content-Type: application/json" -d '{
 
 ## Running Unit Tests
 
-The project includes a basic test suite to demonstrate the principles of test-driven development. The tests cover basic API functionality like the root endpoint and error handling for invalid file types.
+The project includes a basic test suite to demonstrate the principles of test-driven development.
 
 1.  Ensure you have followed the "Running the Application Locally" steps to set up your environment and install dependencies.
 2.  From the project root directory, run the following command:
@@ -229,4 +231,4 @@ The project includes a basic test suite to demonstrate the principles of test-dr
 ```bash
 pytest
 ```
-The tests will execute and print the results to the console.````
+The tests will execute and print the results to the console.
